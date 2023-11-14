@@ -35,14 +35,15 @@ team_t team = {
     ""
 };
 
+/////////////// 원래 레포에 있던 코드 ///////////////
 /* single word (4) or double word (8) alignment */
 // #define ALIGNMENT 8
 
 /* rounds up to the nearest multiple of ALIGNMENT */
 // #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
 
-
 // #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+////////////////////////////////////////////////////
 
 // 가용 리스트 조작을 위한 기본 상수 및 매크로 정의
 /* #define 지시문은 매크로명과 매크로 정의(또는 치환될 내용)로 이루어짐.
@@ -102,6 +103,7 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
+    /* 원래 레포에 있던 코드
     int newsize = ALIGN(size + SIZE_T_SIZE);
     void *p = mem_sbrk(newsize);
     if (p == (void *)-1)
@@ -110,6 +112,34 @@ void *mm_malloc(size_t size)
         *(size_t *)p = size;
         return (void *)((char *)p + SIZE_T_SIZE);
     }
+    */
+   size_t asize;    // adjusted block size. 요청된 블록 크기
+   size_t extendsize;   // amount to extend heap if no fit
+   char *bp;
+
+    /* Ignore spurious requests */
+    if (size == 0)
+        return NULL;
+
+    /* Adjust block size to include overhead and alignment reqs. */
+    if (size <= DSIZE)
+        asize = 2 * DSIZE;  // 블록은 8 바이트(= 더블워드)의 배수로 할당되므로
+
+    else
+        asize = DSIZE * ((size + (DSIZE) + (DSIZE -1)) / DSIZE);    // 무슨 의미 ?
+
+    /* Search the free list for a fit */
+    if ((bp = find_fit(asize)) != NULL) {   // bp는 asize가 들어가기에 적합한 가용 공간
+        place(bp, asize);
+        return bp;
+    }
+    
+    /* No fit found. Get more memory and place the block */
+    extendsize = MAX(asize, CHUNKSIZE); // asize와 chunksize 중 더 큰 값을 확장 크기로 결정
+    if ((bp = extend_heap(extendsize / WSIZE)) == NULL) // 힙 사이즈 확장 후 워드 단위로 반환.
+        return NULL;
+    place(bp, asize);
+    return bp;
 }
 
 // 새 가용 블록으로 힙 확장하기.
