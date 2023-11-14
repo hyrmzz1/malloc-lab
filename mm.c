@@ -76,10 +76,23 @@ team_t team = {
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
 /* 
- * mm_init - initialize the malloc package.
+ * mm_init - initialize the malloc package. 최초 가용 블록으로 힙 생성하기.
  */
 int mm_init(void)
 {
+    // Create the initial empty heap
+    if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1) // mem_sbrk(size) 함수 호출하면 운영체제에게 size 만큼의 추가 메모리 할당을 요청함. 성공시 가용 메모리 공간 size만큼 늘리고 그 확장된 메모리 공간의 시작 주소를 반환.
+        return -1;
+    // 블록 구조(순서): Prologue Header - Prologue Footer - Payload - Epilogue Header
+    PUT(heap_listp, 0); // 데이터 정렬 위한 공간 만들기 위해 첫 번째 주소에 0 넣음
+    PUT(heap_listp + (1*WSIZE), PACK(DSIZE, 1));    // Prologue header
+    PUT(heap_listp + (2*WSIZE), PACK(DSIZE, 1));    // Prologue footer. 헤더와 동일한 val 넣기. (일관성 검사 위해 헤더와 풋터에 동일한 값 할당)
+    PUT(heap_listp + (3*WSIZE), PACK(0, 1));    // Epilogue header. 힙의 끝 표시. size 0 => 다음 블록 없음을 의미.
+    heap_listp += (2*WSIZE);    // 프롤로그 건너 뛰고 실제 데이터 할당 시작되는 위치로 heap_listp 이동
+
+    /*  Extend the empty heap with a free block of CHUNKSIZE bytes */
+    if (extend_heap(CHUNKSIZE/WSIZE) == NULL)   // 초기힙 CHUNKSIZE만큼 확장. 힙 확장 실패시 NULL 반환
+        return -1;  // 초기화 실패 => -1 반환
     return 0;
 }
 
