@@ -97,6 +97,18 @@ int mm_init(void)
     return 0;
 }
 
+static void *find_fit(size_t asize){
+    // first-fit search
+    void *bp;
+    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) { // heap_listp(힙의 시작)부터 메모리 순차 탐색. 힙의 끝에 도달하거나 블록 없을 때까지 탐색.
+        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {    // free인 공간 찾은 경우
+            return bp;  // asize가 들어갈 수 있는 블록 주소 반환
+        }
+    }
+    return NULL; /* No fit */
+#endif  // 왜 있뉴
+}
+
 /* 
  * mm_malloc - Allocate a block by incrementing the brk pointer.
  *     Always allocate a block whose size is a multiple of the alignment.
