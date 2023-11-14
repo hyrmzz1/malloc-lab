@@ -134,8 +134,14 @@ static void *extend_heap(size_t words){
 /*
  * mm_free - Freeing a block does nothing.
  */
-void mm_free(void *ptr)
+void mm_free(void *ptr) // ptr == bp
 {
+    size_t size = GET_SIZE(HDRP(ptr));
+
+    // 블록의 header & footer free로 변경 => free 두 번째 parameter 0으로
+    PUT(HDRP(ptr), PACK(size, 0));
+    PUT(FTRP(ptr), pack(size, 0));
+    coalesce(ptr);
 }
 
 /*
