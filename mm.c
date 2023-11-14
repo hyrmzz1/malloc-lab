@@ -112,6 +112,25 @@ void *mm_malloc(size_t size)
     }
 }
 
+// 새 가용 블록으로 힙 확장하기.
+static void *extend_heap(size_t words){
+    char *bp;
+    size_t size;
+
+    /* Allocate an even number of words to maintain alignment */
+    size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;   // 8(= 더블 워드)의 배수인 블록 리턴하므로
+    if ((long)(bp = mem_sbrk(size)) == -1)  // 힙 확장 성공시 확장된 메모리 블록의 시작 주소 반환(=> 변수 bp에 할당됨), 실패하면 -1 반환.
+        return NULL;
+    
+    /* Initialize free block header/footer and the epilogue header */
+    PUT(HDRP(bp), PACK(size, 0));   // free block header
+    PUT(FTRP(bp), PACK(size, 0));   // free block footer. 헤더와 동일한 size로 초기화!
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));   // new epilogue header. 다음 블록의 헤더 주소에 에필로그 헤더 설정. <= why ???
+
+    /* Coalesce if the previous block was free */
+    return coalesce(bp);
+}
+
 /*
  * mm_free - Freeing a block does nothing.
  */
