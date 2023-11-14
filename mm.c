@@ -132,7 +132,7 @@ static void *extend_heap(size_t words){
 }
 
 /*
- * mm_free - Freeing a block does nothing.
+ * mm_free - Freeing a block does nothing. 블록 반환.
  */
 void mm_free(void *ptr) // ptr == bp
 {
@@ -142,6 +142,43 @@ void mm_free(void *ptr) // ptr == bp
     PUT(HDRP(ptr), PACK(size, 0));
     PUT(FTRP(ptr), pack(size, 0));
     coalesce(ptr);
+}
+
+// 경계 태그(footer)로 연결 (블록 통합)
+static void *coalesce(void *bp){
+    size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp))); // 이전 블록 풋터의 status => 이전 블록의 할당 상태
+    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp))); // 다음 블록 할당 상태
+    size_t size = GET_SIZE(HDRP(bp));   // 현재 블록 사이즈
+
+    // case 1 - 전후 블록 둘다 할당
+    if (prev_alloc && next_alloc) {
+        return bp;  // 연결 X. 현재 블록의 bp만 반환
+    }
+
+    // case 2 - 이전 블록 할당, 다음 블록 free
+    else if (prev_alloc && !next_alloc) {
+        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));  // 현재 블록 + 다음 블록
+        PUT(HDRP(bp), PACK(size, 0));   // 현재 블록의 헤더에 새로운 크기 정보(size) 설정. bp => 새로운 블록(현재 블록 + 다음 블록) 나타냄.
+        PUT(FTRP(bp), PACK(size,0));    // 병합한 블록의 풋터 만들어 블록 끝부분에 추가 => 왜 FTRP(NEXT_BLKP(bp))가 아니지?
+    }
+
+    // case 3 - 이전 블록 free, 다음 블록 할당
+    else if (!prev_alloc && next_alloc) {
+        size += GET_SIZE(HDRP(PREV_BLKP(bp)));  // 이전 블록 + 현재 블록
+        PUT(FTRP(bp), PACK(size, 0));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
+    }
+
+    // case 4 - 전후 블록 둘다 free
+    else {
+        size += GET_SIZE(HDRP(PREV_BLKP(bp))) +
+        GET_SIZE(FTRP(NEXT_BLKP(bp)));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
+    }
+    return bp;
 }
 
 /*
