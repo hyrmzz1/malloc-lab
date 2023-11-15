@@ -24,26 +24,26 @@
  ********************************************************/
 team_t team = {
     /* Team name */
-    "ateam",
+    "jungle-week05",
     /* First member's full name */
-    "Harry Bovik",
+    "Hyerim Yang",
     /* First member's email address */
-    "bovik@cs.cmu.edu",
+    "@hyrmzz1",
     /* Second member's full name (leave blank if none) */
     "",
     /* Second member's email address (leave blank if none) */
     ""
 };
 
-/////////////// 원래 레포에 있던 코드 ///////////////
 /* single word (4) or double word (8) alignment */
-// #define ALIGNMENT 8
+#define ALIGNMENT 8
 
 /* rounds up to the nearest multiple of ALIGNMENT */
-// #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
+#define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)   // `& ~0x7`를 통해 size의 가장 가까운 8의 배수로 반올림. 
+// '~'은 NOT 연산자, '&'는 AND 연산자. '+'가 '&'보다 우선순위 더 높음.
+// '& ~0x7' => 하위 3비트(status)를 000으로 만듦.
 
-// #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
-////////////////////////////////////////////////////
+#define SIZE_T_SIZE (ALIGN(sizeof(size_t))) // size_t의 크기를 ALIGNMENT의 배수로 조정 => 정렬 형태로 반환 
 
 // 가용 리스트 조작을 위한 기본 상수 및 매크로 정의
 /* #define 지시문은 매크로명과 매크로 정의(또는 치환될 내용)로 이루어짐.
@@ -75,6 +75,12 @@ team_t team = {
 /* Given block ptr (bp), compute address of next and previous blocks (bp 각각 반환) */
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
+
+void *heap_listp = NULL;
+static void *extend_heap(size_t words);
+static void *coalesce(void *bp);
+static void *find_fit(size_t asize);
+static void place(void *bp, size_t asize);
 
 /* 
  * mm_init - initialize the malloc package. 최초 가용 블록으로 힙 생성하기.
@@ -112,14 +118,14 @@ static void *find_fit(size_t asize){
 static void place(void *bp, size_t asize){  // 요청 블록을 가용 블록의 시작 부분에 배치, 나머지 크기가 최소 블록 크기와 같거나 큰 경우에만 분할.
     size_t csize = GET_SIZE(HDRP(bp));
 
-    if ((csize - asize) >= (2 * DSIZE)) { // split 가능한 경우 (asize 할당 후에도 16byte(블록 최소 단위) 이상 남아 있는 경우)
+    if ((csize - asize) >= (2 * DSIZE)) { // split 가능한 경우 (asize 할당 후에도 16 bytes(블록 최소 단위) 이상 남아 있는 경우)
         PUT(HDRP(bp), PACK(asize, 1));
         PUT(FTRP(bp), PACK(asize, 1));
         bp = NEXT_BLKP(bp); // 다음 블록 가리키도록 포인터 조정 -> 남은 공간
         PUT(HDRP(bp), PACK(csize-asize, 0)); 
         PUT(FTRP(bp), PACK(csize-asize, 0));
     }
-    else {  // 운영체제에서 받아오는 경우 - split X, 바로 할당
+    else {  // asize 할당하고 남는 공간 16 bytes 미만 => split X, 바로 할당
         PUT(HDRP(bp), PACK(csize, 1));
         PUT(FTRP(bp), PACK(csize, 1));
     }
