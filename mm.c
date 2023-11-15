@@ -85,7 +85,7 @@ int mm_init(void)
     if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1) // mem_sbrk(size) 함수 호출하면 운영체제에게 size 만큼의 추가 메모리 할당을 요청함. 성공시 가용 메모리 공간 size만큼 늘리고 그 확장된 메모리 공간의 시작 주소를 반환.
         return -1;
     // 블록 구조(순서): Prologue Header - Prologue Footer - Payload - Epilogue Header
-    PUT(heap_listp, 0); // 데이터 정렬 위한 공간 만들기 위해 첫 번째 주소에 0 넣음
+    PUT(heap_listp, 0); // alignment padding. 데이터 정렬 위한 공간 만들기 위해 첫 번째 주소에 0 넣음
     PUT(heap_listp + (1*WSIZE), PACK(DSIZE, 1));    // Prologue header
     PUT(heap_listp + (2*WSIZE), PACK(DSIZE, 1));    // Prologue footer. 헤더와 동일한 val 넣기. (일관성 검사 위해 헤더와 풋터에 동일한 값 할당)
     PUT(heap_listp + (3*WSIZE), PACK(0, 1));    // Epilogue header. 힙의 끝 표시. size 0 => 다음 블록 없음을 의미.
@@ -100,13 +100,29 @@ int mm_init(void)
 static void *find_fit(size_t asize){
     // first-fit search
     void *bp;
+
     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) { // heap_listp(힙의 시작)부터 메모리 순차 탐색. 힙의 끝에 도달하거나 블록 없을 때까지 탐색.
         if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {    // free인 공간 찾은 경우
             return bp;  // asize가 들어갈 수 있는 블록 주소 반환
         }
     }
     return NULL; /* No fit */
-#endif  // 왜 있뉴
+}
+
+static void place(void *bp, size_t asize){  // 요청 블록을 가용 블록의 시작 부분에 배치, 나머지 크기가 최소 블록 크기와 같거나 큰 경우에만 분할.
+    size_t csize = GET_SIZE(HDRP(bp));
+
+    if ((csize - asize) >= (2*DSIZE)) { // asize 할당하기 위한 공간 있는지 확인. 왜 2*DSIZE 보다 커야 하는가?
+        PUT(HDRP(bp), PACK(asize, 1));
+        PUT(FTRP(bp), PACK(asize, 1));
+        bp = NEXT_BLKP(bp); // 다음 블록 가리키도록 포인터 조정 -> 남은 공간
+        PUT(HDRP(bp), PACK(csize-asize, 0)); 
+        PUT(FTRP(bp), PACK(csize-asize, 0));
+    }
+    else {  // 할당할 공간 X => 블록 그대로 사용, 할당 표시 (이 공간에 새로운 메모리 블록 할당하지 않는데 왜 1?)
+        PUT(HDRP(bp), PACK(csize, 1));
+        PUT(FTRP(bp), PACK(csize, 1));
+    }
 }
 
 /* 
@@ -138,7 +154,7 @@ void *mm_malloc(size_t size)
         asize = 2 * DSIZE;  // 블록은 8 바이트(= 더블워드)의 배수로 할당되므로
 
     else
-        asize = DSIZE * ((size + (DSIZE) + (DSIZE -1)) / DSIZE);    // 무슨 의미 ?
+        asize = DSIZE * ((size + DSIZE + (DSIZE - 1)) / DSIZE);    // DSIZE = 프롤로그 헤더 + 푸터, (DSIZE - 1) = 8의 배수 만들기 위함. 나누기 연산하면 truncate되고, 다시 DSIZE 곱해주면 asize는 8의 배수가 된다.
 
     /* Search the free list for a fit */
     if ((bp = find_fit(asize)) != NULL) {   // bp는 asize가 들어가기에 적합한 가용 공간
@@ -182,7 +198,7 @@ void mm_free(void *ptr) // ptr == bp
 
     // 블록의 header & footer free로 변경 => free 두 번째 parameter 0으로
     PUT(HDRP(ptr), PACK(size, 0));
-    PUT(FTRP(ptr), pack(size, 0));
+    PUT(FTRP(ptr), PACK(size, 0));
     coalesce(ptr);
 }
 
