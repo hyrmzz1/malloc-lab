@@ -69,8 +69,8 @@ team_t team = {
 #define GET_ALLOC(p) (GET(p) & 0x1) // 주소 p에 있는 헤더 or 풋터의 할당 비트 리턴
 
 /* Given block ptr (bp), compute address of its header and footer. 블록 헤더와 풋터 가리키는 포인터 리턴. => 헤더, 풋터 위치 계산하기 위해 사용됨 */
-#define HDRP(bp) ((char *)(bp) - WSIZE)
-#define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
+#define HDRP(bp) ((char *)(bp) - WSIZE) // bp는 페이로드 시작되는 부분이므로 헤더 사이즈인 WSIZE 빼주면 헤더 시작 위치(= 주소) 구할 수 있음.
+#define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)    // 헤더에 의존!!!
 
 /* Given block ptr (bp), compute address of next and previous blocks (bp 각각 반환) */
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
@@ -98,7 +98,7 @@ int mm_init(void)
     heap_listp += (2*WSIZE);    // 프롤로그 건너 뛰고 실제 데이터 할당 시작되는 위치로 heap_listp 이동
 
     /*  Extend the empty heap with a free block of CHUNKSIZE bytes */
-    if (extend_heap(CHUNKSIZE/WSIZE) == NULL)   // 초기힙 CHUNKSIZE만큼 확장. 힙 확장 실패시 NULL 반환
+    if (extend_heap(CHUNKSIZE/WSIZE) == NULL)   // 초기힙 CHUNKSIZE(워드 단위)만큼 확장. 힙 확장 실패시 NULL 반환
         return -1;  // 초기화 실패 => -1 반환
     return 0;
 }
@@ -107,7 +107,7 @@ static void *find_fit(size_t asize){
     // first-fit search
     void *bp;
 
-    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) { // heap_listp(힙의 시작)부터 메모리 순차 탐색. 힙의 끝에 도달하거나 블록 없을 때까지 탐색.
+    for (bp = (char *)heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) { // heap_listp(힙의 시작)부터 메모리 순차 탐색. char형으로 형변환 => 1byte씩 탐색하기 위함. 힙의 끝에 도달하거나 블록 없을 때까지 탐색.
         if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {    // free인 공간 찾은 경우
             return bp;  // asize가 들어갈 수 있는 블록 주소 반환
         }
@@ -164,7 +164,7 @@ void *mm_malloc(size_t size)
 
     /* Search the free list for a fit */
     if ((bp = find_fit(asize)) != NULL) {   // bp는 asize가 들어가기에 적합한 가용 공간
-        place(bp, asize);
+        place(bp, asize);   // 가용 공간 찾으면 place로 요청 블록 배치하고 새 할당 블록 리턴 (옵션 - 초과 부분 분할(split))
         return bp;
     }
     
@@ -172,7 +172,7 @@ void *mm_malloc(size_t size)
     extendsize = MAX(asize, CHUNKSIZE); // asize와 chunksize 중 더 큰 값을 확장 크기로 결정
     if ((bp = extend_heap(extendsize / WSIZE)) == NULL) // 힙 사이즈 확장 후 워드 단위로 반환.
         return NULL;
-    place(bp, asize);
+    place(bp, asize);   // split
     return bp;
 }
 
@@ -183,13 +183,13 @@ static void *extend_heap(size_t words){
 
     /* Allocate an even number of words to maintain alignment */
     size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;   // 8(= 더블 워드)의 배수인 블록 리턴하므로
-    if ((long)(bp = mem_sbrk(size)) == -1)  // 힙 확장 성공시 확장된 메모리 블록의 시작 주소 반환(=> 변수 bp에 할당됨), 실패하면 -1 반환.
+    if ((bp = mem_sbrk(size)) == (void *)-1)  // 힙 확장 성공시 확장된 메모리 블록의 시작 주소 반환(=> 변수 bp에 할당됨), 실패하면 -1 반환.
         return NULL;
     
     /* Initialize free block header/footer and the epilogue header */
     PUT(HDRP(bp), PACK(size, 0));   // free block header
     PUT(FTRP(bp), PACK(size, 0));   // free block footer. 헤더와 동일한 size로 초기화!
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));   // new epilogue header. 다음 블록의 헤더 주소에 에필로그 헤더 설정. <= why ???
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));   // new epilogue header. 다음 블록의 헤더 주소에 에필로그 헤더 설정. 메모리 블록 종료하는 마지막 블록임을 명시.
 
     /* Coalesce if the previous block was free */
     return coalesce(bp);
@@ -200,6 +200,8 @@ static void *extend_heap(size_t words){
  */
 void mm_free(void *ptr) // ptr == bp
 {
+    if(!ptr) return;    // ptr가 NULL이면 리턴
+
     size_t size = GET_SIZE(HDRP(ptr));
 
     // 블록의 header & footer free로 변경 => free 두 번째 parameter 0으로
@@ -223,7 +225,7 @@ static void *coalesce(void *bp){
     else if (prev_alloc && !next_alloc) {
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));  // 현재 블록 + 다음 블록
         PUT(HDRP(bp), PACK(size, 0));   // 현재 블록의 헤더에 새로운 크기 정보(size) 설정. bp => 새로운 블록(현재 블록 + 다음 블록) 나타냄.
-        PUT(FTRP(bp), PACK(size,0));    // 병합한 블록의 풋터 만들어 블록 끝부분에 추가 => 왜 FTRP(NEXT_BLKP(bp))가 아니지?
+        PUT(FTRP(bp), PACK(size,0));    // 병합한 블록의 풋터 만들어 블록 끝부분에 추가. FTRP(NEXT_BLKP(bp))가 아닌 이유는 풋터는 헤더에 의존하기 때문. 새로운 size에 대해 헤더 선언 => 사이즈에 맞게 풋터 위치
     }
 
     // case 3 - 이전 블록 free, 다음 블록 할당
@@ -239,7 +241,7 @@ static void *coalesce(void *bp){
         size += GET_SIZE(HDRP(PREV_BLKP(bp))) +
         GET_SIZE(FTRP(NEXT_BLKP(bp)));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
-        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));    // FTRP(NEXT_BLKP(bp))로 작성하는 이유는 bp는 현재 블록에 대한 것이기 때문. 
         bp = PREV_BLKP(bp);
     }
     return bp;
@@ -247,8 +249,11 @@ static void *coalesce(void *bp){
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
+ * realloc: 힙에 할당된 메모리 공간 확장 시 호출. size만큼 연속된 메모리 할당할 수 없으면 새로운 영역 할당 후 기존 요소 복사해 새 메모리 주소를 반환.
+ * realloc 성공 시 새로 할당된 메모리의 주소 값 반환, 실패 시 null 반환 (ptr는 살려 놓음.)
  */
-void *mm_realloc(void *ptr, size_t size)
+/* 원래 레포에 있던 코드
+void *mm_realloc(void *ptr, size_t size)    // ptr: 확장하고자 하는 힙 메모리의 시작 주소 값, size: 확장하고자 하는 메모리의 전체 크기. (ptr이 가리키는 메모리의 크기를 size 크기로 확장)
 {
     void *oldptr = ptr;
     void *newptr;
@@ -263,4 +268,40 @@ void *mm_realloc(void *ptr, size_t size)
     memcpy(newptr, oldptr, copySize);
     mm_free(oldptr);
     return newptr;
+}
+*/
+void *mm_realloc(void *bp, size_t size){
+    // 예외 처리    
+    if (size <= 0){
+        mm_free(bp);
+        return NULL;
+    }
+
+    if (bp == NULL)
+        return mm_malloc(size);
+
+    size_t old_size = GET_SIZE(HDRP(bp));
+    size_t new_size = size + DSIZE; // size는 payload 크기이므로 헤더, 풋터 사이즈 더해줘야 함.
+
+    // size만큼의 연속된 메모리 있는지 확인
+    if (new_size <= old_size){   // 원래 공간이 확장하고자 하는 크기보다 크면
+        return bp;  // 거기에 확장 (기존 bp 사용)
+    }
+    // 확장하고자 하는 크기가 원래 공간보다 크면 새로운 영역 할당 후 기존 요소 복사해 새 메모리 주소를 반환
+    else{
+        size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
+        size_t sum_curr_next = old_size + GET_SIZE(HDRP(NEXT_BLKP(bp)));  // 현재 블록 + 다음 블록
+
+        if (!next_alloc && (new_size <= sum_curr_next)){   // 다음 블록이 free, sum_curr_next에 size 들어갈 수 있다면
+            PUT(HDRP(bp), PACK(sum_curr_next, 1));
+            PUT(FTRP(bp), PACK(sum_curr_next, 1));
+            return bp;
+        }
+        else{   // 아예 새 블록 만들기
+            void *new_bp = mm_malloc(new_size);
+            memcpy(new_bp, bp, new_size);   // bp에서 new_size(= 데이터 길이. 바이트 단위)를 new_bp로 복사
+            mm_free(bp);
+            return new_bp;
+        }
+    }
 }
