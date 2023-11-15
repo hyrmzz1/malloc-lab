@@ -112,14 +112,14 @@ static void *find_fit(size_t asize){
 static void place(void *bp, size_t asize){  // 요청 블록을 가용 블록의 시작 부분에 배치, 나머지 크기가 최소 블록 크기와 같거나 큰 경우에만 분할.
     size_t csize = GET_SIZE(HDRP(bp));
 
-    if ((csize - asize) >= (2*DSIZE)) { // asize 할당하기 위한 공간 있는지 확인. 왜 2*DSIZE 보다 커야 하는가?
+    if ((csize - asize) >= (2 * DSIZE)) { // split 가능한 경우 (asize 할당 후에도 16byte(블록 최소 단위) 이상 남아 있는 경우)
         PUT(HDRP(bp), PACK(asize, 1));
         PUT(FTRP(bp), PACK(asize, 1));
         bp = NEXT_BLKP(bp); // 다음 블록 가리키도록 포인터 조정 -> 남은 공간
         PUT(HDRP(bp), PACK(csize-asize, 0)); 
         PUT(FTRP(bp), PACK(csize-asize, 0));
     }
-    else {  // 할당할 공간 X => 블록 그대로 사용, 할당 표시 (이 공간에 새로운 메모리 블록 할당하지 않는데 왜 1?)
+    else {  // 운영체제에서 받아오는 경우 - split X, 바로 할당
         PUT(HDRP(bp), PACK(csize, 1));
         PUT(FTRP(bp), PACK(csize, 1));
     }
